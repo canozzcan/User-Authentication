@@ -27,12 +27,23 @@ router.get('/signup', function (req, res) {
 });
 
 router.get('/login', function (req, res) {
-  res.render('login');
+  let sessionInputData = req.session.inputData;
+
+  if (!sessionInputData) {
+    sessionInputData = {
+      hasError: false,
+      email: '',
+      password: '',
+    };
+  }
+
+  req.session.inputData = null;
+  res.render('login', { inputData: sessionInputData });
 });
 
 router.post('/signup', async function (req, res) {
   const userData = req.body;
-  const enteredEmail = userData.email; 
+  const enteredEmail = userData.email;
   const enteredConfirmEmail = userData['confirm-email']; //  I don't use dot('.') notation this line its because there is a dash(-) between "confirm-email"
   const enteredPassword = userData.password;
 
@@ -56,7 +67,7 @@ router.post('/signup', async function (req, res) {
       res.redirect('/signup');
     });
     return;
-   
+
   }
 
   const existingUser = await db
@@ -65,8 +76,17 @@ router.post('/signup', async function (req, res) {
     .findOne({ email: enteredEmail });
 
   if (existingUser) {
-    console.log('User exists already');
-    return res.redirect('/signup');
+    req.session.inputData = {
+      hasError: true,
+      message: 'User exits already!',
+      email: enteredEmail,
+      confirmEmail: enteredConfirmEmail,
+      password: enteredPassword
+    };
+    req.session.save(function () {
+      res.redirect('/signup');
+    });
+    return
   }
 
   const hashedPassword = await bcrypt.hash(enteredPassword, 12);
@@ -92,8 +112,16 @@ router.post('/login', async function (req, res) {
     .findOne({ email: enteredEmail });
 
   if (!existingUser) {
-    console.log('Could not log in!');
-    return res.redirect('/login');
+    req.session.inputData = {
+      hasError: true,
+      message: 'Could not log you in - please check your credentials!',
+      email: enteredEmail,
+      password: enteredPassword,
+    };
+    req.session.save(function () {
+      res.redirect('/login');
+    });
+    return;
   }
 
   const passwordsAreEqual = await bcrypt.compare(
@@ -102,8 +130,16 @@ router.post('/login', async function (req, res) {
   );
 
   if (!passwordsAreEqual) {
-    console.log('Could not log in - passwords are not equal!');
-    return res.redirect('/login');
+    req.session.inputData = {
+      hasError: true,
+      message: 'Could not log you in - please check your credentials!',
+      email: enteredEmail,
+      password: enteredPassword,
+    };
+    req.session.save(function () {
+      res.redirect('/login');
+    });
+    return;
   }
 
   req.session.user = { id: existingUser._id, email: existingUser.email };
@@ -113,16 +149,17 @@ router.post('/login', async function (req, res) {
   });
 });
 
+
 router.get('/admin', async function (req, res) {
   if (!req.session.isAuthenticated) {
     // if (!req.session.user)
     return res.status(401).render('401');
   }
 
-  const user = await db.getDb().collection('users').findOne({_id: req.session.user.id});
+  const user = await db.getDb().collection('users').findOne({ _id: req.session.user.id });
 
   if (!user || !user.isAdmin) {
-    res.status(403).render('403');
+    return res.status(403).render('403');
   }
 
   res.render('admin');
